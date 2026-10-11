@@ -1,0 +1,381 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  admin
+  user
+  enterprise
+}
+
+enum PlanType {
+  free
+  pro
+  enterprise
+}
+
+enum AgentRole {
+  dental_receptionist
+  restaurant_ordering
+  social_media_marketing
+  customer_support
+  sales_agent
+  appointment_booking
+  personal_assistant
+}
+
+enum AgentStatus {
+  draft
+  active
+  paused
+  archived
+}
+
+enum Language {
+  en
+  ar
+  ur
+  fr
+  auto
+}
+
+enum VoiceProvider {
+  elevenlabs
+  azure
+  google
+  openai
+}
+
+enum ConversationChannel {
+  web
+  voice
+  api
+  whatsapp
+}
+
+enum ConversationStatus {
+  active
+  completed
+  abandoned
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+  tool
+}
+
+enum KnowledgeType {
+  document
+  url
+  faq
+  custom
+}
+
+enum EmbeddingStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+enum OrgMemberRole {
+  owner
+  admin
+  member
+}
+
+enum AppointmentStatus {
+  scheduled
+  confirmed
+  completed
+  cancelled
+}
+
+enum OrderStatus {
+  pending
+  confirmed
+  preparing
+  ready
+  delivered
+  cancelled
+}
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  avatarUrl  String?
+  role       UserRole @default(user)
+  plan       PlanType @default(free)
+  password   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orgMemberships OrgMember[]
+  accounts       Account[]
+  sessions       Session[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  plan      PlanType @default(free)
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       OrgMember[]
+  agents        Agent[]
+  apiKeys       ApiKey[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id        String        @id @default(cuid())
+  orgId     String
+  userId    String
+  role      OrgMemberRole @default(member)
+  createdAt DateTime      @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@map("org_members")
+}
+
+model Agent {
+  id            String        @id @default(cuid())
+  orgId         String
+  name          String
+  slug          String?
+  role          AgentRole
+  industry      String?
+  description   String?
+  avatarUrl     String?
+  personality   String?
+  instructions  String?       @db.Text
+  language      Language      @default(auto)
+  voiceId       String?
+  voiceProvider VoiceProvider?
+  llmModel      String        @default("gpt-4o")
+  status        AgentStatus   @default(draft)
+  settings      Json?
+  totalConversations Int      @default(0)
+  totalMessages      Int      @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  knowledgeBases KnowledgeBase[]
+  conversations  Conversation[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("agents")
+}
+
+model KnowledgeBase {
+  id              String          @id @default(cuid())
+  agentId         String
+  name            String
+  type            KnowledgeType
+  content         String?         @db.Text
+  fileUrl         String?
+  embeddingStatus EmbeddingStatus @default(pending)
+  createdAt       DateTime        @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("knowledge_bases")
+}
+
+model Conversation {
+  id            String              @id @default(cuid())
+  agentId       String
+  sessionId     String?
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  language      String?
+  channel       ConversationChannel @default(web)
+  status        ConversationStatus  @default(active)
+  metadata      Json?
+  startedAt     DateTime            @default(now())
+  endedAt       DateTime?
+
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages Message[]
+  orders   Order[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String      @db.Text
+  audioUrl       String?
+  tokensUsed     Int?
+  latencyMs      Int?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model DentalPatient {
+  id             String   @id @default(cuid())
+  orgId          String
+  name           String
+  email          String?
+  phone          String?
+  dateOfBirth    DateTime?
+  medicalHistory Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointments DentalAppointment[]
+
+  @@map("dental_patients")
+}
+
+model DentalAppointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  doctorName  String?
+  treatment   String?
+  scheduledAt DateTime
+  status      AppointmentStatus @default(scheduled)
+  notes       String?
+  createdAt   DateTime          @default(now())
+
+  patient DentalPatient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("dental_appointments")
+}
+
+model Restaurant {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  settings  Json?
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+
+  @@map("restaurants")
+}
+
+model MenuItem {
+  id           String     @id @default(cuid())
+  restaurantId String
+  name         String
+  description  String?
+  price        Decimal    @db.Decimal(10, 2)
+  category     String?
+  imageUrl     String?
+  available    Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@map("menu_items")
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  restaurantId    String?
+  conversationId  String?
+  customerName    String?
+  items           Json
+  total           Decimal     @db.Decimal(10, 2)
+  status          OrderStatus @default(pending)
+  deliveryAddress String?
+  createdAt       DateTime    @default(now())
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@map("orders")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  agentId    String?
+  eventType  String
+  properties Json?
+  createdAt  DateTime @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agent Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@map("analytics_events")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  orgId      String
+  name       String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
